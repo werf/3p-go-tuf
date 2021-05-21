@@ -239,8 +239,8 @@ func (s *ClientSuite) assertErrExpired(c *C, err error, file string) {
 
 func (s *ClientSuite) TestInitRootTooLarge(c *C) {
 	client := NewClient(MemoryLocalStore(), s.remote)
-	s.remote.meta["root.json"] = newFakeFile(make([]byte, defaultRootDownloadLimit+1))
-	c.Assert(client.Init(s.rootKeys(c), 0), Equals, ErrMetaTooLarge{"root.json", defaultRootDownloadLimit + 1, defaultRootDownloadLimit})
+	s.remote.meta["root.json"] = newFakeFile(make([]byte, DefaultRootDownloadLimit+1))
+	c.Assert(client.Init(s.rootKeys(c), 0), Equals, ErrMetaTooLarge{"root.json", DefaultRootDownloadLimit + 1, DefaultRootDownloadLimit})
 }
 
 func (s *ClientSuite) TestInitRootExpired(c *C) {
@@ -542,9 +542,9 @@ func (s *ClientSuite) TestLocalExpired(c *C) {
 }
 
 func (s *ClientSuite) TestTimestampTooLarge(c *C) {
-	s.remote.meta["timestamp.json"] = newFakeFile(make([]byte, defaultTimestampDownloadLimit+1))
+	s.remote.meta["timestamp.json"] = newFakeFile(make([]byte, DefaultTimestampDownloadLimit+1))
 	_, err := s.newClient(c).Update()
-	c.Assert(err, Equals, ErrMetaTooLarge{"timestamp.json", defaultTimestampDownloadLimit + 1, defaultTimestampDownloadLimit})
+	c.Assert(err, Equals, ErrMetaTooLarge{"timestamp.json", DefaultTimestampDownloadLimit + 1, DefaultTimestampDownloadLimit})
 }
 
 func (s *ClientSuite) TestUpdateLocalRootExpired(c *C) {
