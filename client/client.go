@@ -16,10 +16,10 @@ const (
 	// This is the upper limit in bytes we will use to limit the download
 	// size of the root/timestamp roles, since we might not don't know how
 	// big it is.
-	defaultRootDownloadLimit      = 512000
-	defaultTimestampDownloadLimit = 16384
-	defaultMaxDelegations         = 32
-	defaultMaxRootRotations       = 1e3
+	DefaultRootDownloadLimit      = 512000
+	DefaultTimestampDownloadLimit = 16384
+	DefaultMaxDelegations         = 32
+	DefaultMaxRootRotations       = 1e3
 )
 
 // LocalStore is local storage for downloaded top-level metadata.
@@ -101,8 +101,8 @@ func NewClient(local LocalStore, remote RemoteStore) *Client {
 	return &Client{
 		local:            local,
 		remote:           remote,
-		MaxDelegations:   defaultMaxDelegations,
-		MaxRootRotations: defaultMaxRootRotations,
+		MaxDelegations:   DefaultMaxDelegations,
+		MaxRootRotations: DefaultMaxRootRotations,
 	}
 }
 
@@ -138,7 +138,7 @@ func (c *Client) Update() (data.TargetFiles, error) {
 	c.getLocalMeta()
 
 	// 5.4.1 - Download the timestamp metadata
-	timestampJSON, err := c.DownloadMetaUnsafe("timestamp.json", defaultTimestampDownloadLimit)
+	timestampJSON, err := c.DownloadMetaUnsafe("timestamp.json", DefaultTimestampDownloadLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +260,7 @@ func (c *Client) UpdateRoots() error {
 		// NOTE: as a side effect, we do update c.rootVer to nPlusOne between iterations.
 		nPlusOne := c.rootVer + 1
 		nPlusOneRootPath := util.VersionedPath("root.json", nPlusOne)
-		nPlusOneRootMetadata, err := c.DownloadMetaUnsafe(nPlusOneRootPath, defaultRootDownloadLimit)
+		nPlusOneRootMetadata, err := c.DownloadMetaUnsafe(nPlusOneRootPath, DefaultRootDownloadLimit)
 
 		if err != nil {
 			if _, ok := err.(ErrMissingRemoteMetadata); ok {

@@ -453,8 +453,8 @@ func (s *ClientSuite) TestUpdateRoots(c *C) {
 		{"testdata/Published2Times_targets_keyrotated", nil, map[string]int64{"root": 2, "timestamp": 2, "snapshot": 2, "targets": 2}},
 		// timestamp role key rotation increase the timestamp.
 		{"testdata/Published2Times_timestamp_keyrotated", nil, map[string]int64{"root": 2, "timestamp": 2, "snapshot": 1, "targets": 1}},
-		//root file size > defaultRootDownloadLimit
-		{"testdata/Published2Times_roottoolarge", ErrMetaTooLarge{Name: "2.root.json", Size: defaultRootDownloadLimit + 1, MaxSize: defaultRootDownloadLimit}, map[string]int64{}},
+		//root file size > DefaultRootDownloadLimit
+		{"testdata/Published2Times_roottoolarge", ErrMetaTooLarge{Name: "2.root.json", Size: DefaultRootDownloadLimit + 1, MaxSize: DefaultRootDownloadLimit}, map[string]int64{}},
 	}
 
 	for _, test := range tests {
@@ -773,9 +773,9 @@ func (s *ClientSuite) TestLocalExpired(c *C) {
 }
 
 func (s *ClientSuite) TestTimestampTooLarge(c *C) {
-	s.remote.meta["timestamp.json"] = newFakeFile(make([]byte, defaultTimestampDownloadLimit+1))
+	s.remote.meta["timestamp.json"] = newFakeFile(make([]byte, DefaultTimestampDownloadLimit+1))
 	_, err := s.newClient(c).Update()
-	c.Assert(err, Equals, ErrMetaTooLarge{"timestamp.json", defaultTimestampDownloadLimit + 1, defaultTimestampDownloadLimit})
+	c.Assert(err, Equals, ErrMetaTooLarge{"timestamp.json", DefaultTimestampDownloadLimit + 1, DefaultTimestampDownloadLimit})
 }
 
 func (s *ClientSuite) TestUpdateLocalRootExpired(c *C) {
