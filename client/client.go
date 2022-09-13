@@ -15,10 +15,10 @@ const (
 	// This is the upper limit in bytes we will use to limit the download
 	// size of the root/timestamp roles, since we might not don't know how
 	// big it is.
-	defaultRootDownloadLimit      = 512000
-	defaultTimestampDownloadLimit = 16384
-	defaultMaxDelegations         = 32
-	defaultMaxRootRotations       = 1e3
+	DefaultRootDownloadLimit      = 512000
+	DefaultTimestampDownloadLimit = 16384
+	DefaultMaxDelegations         = 32
+	DefaultMaxRootRotations       = 1e3
 )
 
 // LocalStore is local storage for downloaded top-level metadata.
@@ -100,8 +100,8 @@ func NewClient(local LocalStore, remote RemoteStore) *Client {
 	return &Client{
 		local:            local,
 		remote:           remote,
-		MaxDelegations:   defaultMaxDelegations,
-		MaxRootRotations: defaultMaxRootRotations,
+		MaxDelegations:   DefaultMaxDelegations,
+		MaxRootRotations: DefaultMaxRootRotations,
 	}
 }
 
@@ -137,7 +137,7 @@ func (c *Client) Update() (data.TargetFiles, error) {
 	c.getLocalMeta()
 
 	// 5.4.1 - Download the timestamp metadata
-	timestampJSON, err := c.downloadMetaUnsafe("timestamp.json", defaultTimestampDownloadLimit)
+	timestampJSON, err := c.DownloadMetaUnsafe("timestamp.json", DefaultTimestampDownloadLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +259,7 @@ func (c *Client) UpdateRoots() error {
 		// NOTE: as a side effect, we do update c.rootVer to nPlusOne between iterations.
 		nPlusOne := c.rootVer + 1
 		nPlusOneRootPath := util.VersionedPath("root.json", nPlusOne)
-		nPlusOneRootMetadata, err := c.downloadMetaUnsafe(nPlusOneRootPath, defaultRootDownloadLimit)
+		nPlusOneRootMetadata, err := c.DownloadMetaUnsafe(nPlusOneRootPath, DefaultRootDownloadLimit)
 
 		if err != nil {
 			if _, ok := err.(ErrMissingRemoteMetadata); ok {
@@ -529,10 +529,10 @@ func (c *Client) loadTargets(targets data.TargetFiles) {
 	}
 }
 
-// downloadMetaUnsafe downloads top-level metadata from remote storage without
+// DownloadMetaUnsafe downloads top-level metadata from remote storage without
 // verifying it's length and hashes (used for example to download timestamp.json
 // which has unknown size). It will download at most maxMetaSize bytes.
-func (c *Client) downloadMetaUnsafe(name string, maxMetaSize int64) ([]byte, error) {
+func (c *Client) DownloadMetaUnsafe(name string, maxMetaSize int64) ([]byte, error) {
 	r, size, err := c.remote.GetMeta(name)
 	if err != nil {
 		if IsNotFound(err) {
