@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"path"
 	"sort"
 	"strings"
@@ -48,24 +49,64 @@ type Repo struct {
 	meta           map[string]json.RawMessage
 	prefix         string
 	indent         string
+	logger         *log.Logger
+}
+
+type RepoOpts func(r *Repo)
+
+func WithLogger(logger *log.Logger) RepoOpts {
+	return func(r *Repo) {
+		r.logger = logger
+	}
+}
+
+func WithHashAlgorithms(hashAlgorithms ...string) RepoOpts {
+	return func(r *Repo) {
+		r.hashAlgorithms = hashAlgorithms
+	}
+}
+
+func WithPrefix(prefix string) RepoOpts {
+	return func(r *Repo) {
+		r.prefix = prefix
+	}
+}
+
+func WithIndex(indent string) RepoOpts {
+	return func(r *Repo) {
+		r.indent = indent
+	}
 }
 
 func NewRepo(local LocalStore, hashAlgorithms ...string) (*Repo, error) {
 	return NewRepoIndent(local, "", "", hashAlgorithms...)
 }
 
-func NewRepoIndent(local LocalStore, prefix string, indent string, hashAlgorithms ...string) (*Repo, error) {
+func NewRepoIndent(local LocalStore, prefix string, indent string,
+	hashAlgorithms ...string) (*Repo, error) {
 	r := &Repo{
 		local:          local,
 		hashAlgorithms: hashAlgorithms,
 		prefix:         prefix,
 		indent:         indent,
+		logger:         log.New(io.Discard, "", 0),
 	}
 
 	var err error
 	r.meta, err = local.GetMeta()
 	if err != nil {
 		return nil, err
+	}
+	return r, nil
+}
+
+func NewRepoWithOpts(local LocalStore, opts ...RepoOpts) (*Repo, error) {
+	r, err := NewRepo(local)
+	if err != nil {
+		return nil, err
+	}
+	for _, opt := range opts {
+		opt(r)
 	}
 	return r, nil
 }
@@ -91,7 +132,7 @@ func (r *Repo) Init(consistentSnapshot bool) error {
 		return err
 	}
 
-	fmt.Println("Repository initialized")
+	r.logger.Println("Repository initialized")
 	return nil
 }
 
@@ -533,7 +574,7 @@ func (r *Repo) RevokeKeyWithExpires(keyRole, id string, expires time.Time) error
 
 	err = r.setMeta("root.json", root)
 	if err == nil {
-		fmt.Println("Revoked", keyRole, "key with ID", id, "in root metadata")
+		r.logger.Println("Revoked", keyRole, "key with ID", id, "in root metadata")
 	}
 	return err
 }
@@ -657,8 +698,7 @@ func (r *Repo) ResetTargetsDelegationsWithExpires(delegator string, expires time
 		return fmt.Errorf("error getting delegator (%q) metadata: %w", delegator, err)
 	}
 
-	t.Delegations = &data.Delegations{}
-	t.Delegations.Keys = make(map[string]*data.PublicKey)
+	t.Delegations = nil
 
 	t.Expires = expires.Round(time.Second)
 
@@ -783,7 +823,7 @@ func (r *Repo) Sign(roleFilename string) error {
 	r.meta[roleFilename] = b
 	err = r.local.SetMeta(roleFilename, b)
 	if err == nil {
-		fmt.Println("Signed", roleFilename, "with", numKeys, "key(s)")
+		r.logger.Println("Signed", roleFilename, "with", numKeys, "key(s)")
 	}
 	return err
 }
@@ -803,7 +843,13 @@ func (r *Repo) AddOrUpdateSignature(roleFilename string, signature data.Signatur
 		return ErrInvalidRole{role, "no trusted keys for role"}
 	}
 
+	s, err := r.SignedMeta(roleFilename)
+	if err != nil {
+		return err
+	}
+
 	keyInDB := false
+	validSig := false
 	for _, db := range dbs {
 		roleData := db.GetRole(role)
 		if roleData == nil {
@@ -811,15 +857,27 @@ func (r *Repo) AddOrUpdateSignature(roleFilename string, signature data.Signatur
 		}
 		if roleData.ValidKey(signature.KeyID) {
 			keyInDB = true
+
+			verifier, err := db.GetVerifier(signature.KeyID)
+			if err != nil {
+				continue
+			}
+
+			// Now check if this validly signed the metadata.
+			if err := verify.VerifySignature(s.Signed, signature.Signature,
+				verifier); err == nil {
+				validSig = true
+				break
+			}
 		}
 	}
 	if !keyInDB {
+		// This key was not delegated for the role in any delegatee.
 		return verify.ErrInvalidKey
 	}
-
-	s, err := r.SignedMeta(roleFilename)
-	if err != nil {
-		return err
+	if !validSig {
+		// The signature was invalid.
+		return verify.ErrInvalid
 	}
 
 	// Add or update signature.
@@ -831,16 +889,6 @@ func (r *Repo) AddOrUpdateSignature(roleFilename string, signature data.Signatur
 	}
 	signatures = append(signatures, signature)
 	s.Signatures = signatures
-
-	// Check signature on signed meta. Ignore threshold errors as this may not be fully
-	// signed.
-	for _, db := range dbs {
-		if err := db.VerifySignatures(s, role); err != nil {
-			if _, ok := err.(verify.ErrRoleThreshold); !ok {
-				return err
-			}
-		}
-	}
 
 	b, err := r.jsonMarshal(s)
 	if err != nil {
@@ -1223,7 +1271,7 @@ func (r *Repo) removeTargetsWithExpiresFromMeta(metaName string, paths []string,
 		for _, path := range paths {
 			path = util.NormalizeTarget(path)
 			if _, ok := t.Targets[path]; !ok {
-				fmt.Printf("[%v] The following target is not present: %v\n", metaName, path)
+				r.logger.Printf("[%v] The following target is not present: %v\n", metaName, path)
 				continue
 			}
 			removed = true
@@ -1243,17 +1291,17 @@ func (r *Repo) removeTargetsWithExpiresFromMeta(metaName string, paths []string,
 
 	err = r.setMeta(metaName, t)
 	if err == nil {
-		fmt.Printf("[%v] Removed targets:\n", metaName)
+		r.logger.Printf("[%v] Removed targets:\n", metaName)
 		for _, v := range removed_targets {
-			fmt.Println("*", v)
+			r.logger.Println("*", v)
 		}
 		if len(t.Targets) != 0 {
-			fmt.Printf("[%v] Added/staged targets:\n", metaName)
+			r.logger.Printf("[%v] Added/staged targets:\n", metaName)
 			for k := range t.Targets {
-				fmt.Println("*", k)
+				r.logger.Println("*", k)
 			}
 		} else {
-			fmt.Printf("[%v] There are no added/staged targets\n", metaName)
+			r.logger.Printf("[%v] There are no added/staged targets\n", metaName)
 		}
 	}
 	return err
@@ -1307,7 +1355,7 @@ func (r *Repo) SnapshotWithExpires(expires time.Time) error {
 	}
 	err = r.setMeta("snapshot.json", snapshot)
 	if err == nil {
-		fmt.Println("Staged snapshot.json metadata with expiration date:", snapshot.Expires)
+		r.logger.Println("Staged snapshot.json metadata with expiration date:", snapshot.Expires)
 	}
 	return err
 }
@@ -1339,7 +1387,7 @@ func (r *Repo) TimestampWithExpires(expires time.Time) error {
 
 	err = r.setMeta("timestamp.json", timestamp)
 	if err == nil {
-		fmt.Println("Staged timestamp.json metadata with expiration date:", timestamp.Expires)
+		r.logger.Println("Staged timestamp.json metadata with expiration date:", timestamp.Expires)
 	}
 	return err
 }
@@ -1505,7 +1553,7 @@ func (r *Repo) Commit() error {
 
 	err = r.local.Commit(root.ConsistentSnapshot, versions, hashes)
 	if err == nil {
-		fmt.Println("Committed successfully")
+		r.logger.Println("Committed successfully")
 	}
 	return err
 }
@@ -1513,7 +1561,7 @@ func (r *Repo) Commit() error {
 func (r *Repo) Clean() error {
 	err := r.local.Clean()
 	if err == nil {
-		fmt.Println("Removed all staged metadata and target files")
+		r.logger.Println("Removed all staged metadata and target files")
 	}
 	return err
 }
